@@ -175,6 +175,8 @@ def evaluate_email(sender_email, email_body, attachments):
 
     return score
 
+
+
 def main():
     print("1. Check an EML file")
     print("2. Benchmark")
@@ -193,10 +195,15 @@ def main():
             print("This email seems safe.")
     elif choice == 2:
         # Load dataset
-        dt = pd.read_csv('dt.csv')
+        filename = str(input("Enter file name with .csv extension: "))  # Corrected to .csv
+        dt = pd.read_csv(filename)
 
-        # Remove rows with NaN in 'sender' or 'body' columns
-        dt = dt.dropna(subset=['sender', 'body'])
+        # Print the first few rows to understand the structure
+        print("Dataset preview:")
+        print(dt.head())
+
+        # Remove rows with NaN in 'body' or 'label' columns
+        dt = dt.dropna(subset=['body', 'label'])
 
         # Initialize lists for true and predicted labels
         y_true = []
@@ -204,37 +211,49 @@ def main():
 
         # Evaluate emails in the dataset
         for index, row in dt.iterrows():
-            sender = row['sender']
+            sender = row['sender'] if pd.notna(row['sender']) else "unknown@example.com"  # Use a dummy value
             body = row['body']
-            subject = row['sub']
+            label = row['label']
+
+            # Debugging information
+            print(f"Processing row {index}: sender={sender}, label={label}")
 
             # Check if sender is valid
             if isinstance(sender, str) and sender:  # Ensure sender is a string and not empty
                 score = evaluate_email(sender, body, [])
-                y_true.append(row['label'])
+                if isinstance(label, str):
+                    y_true.append(1 if label.strip().lower() == 'phishing' else 0)
+                elif isinstance(label, (int, float)):
+                    y_true.append(int(label))
+                else:
+                    print(f"Skipping row with invalid label at index {index}: {label}")
+                    continue
                 y_pred.append(score >= 4)
             else:
-                print(f"Skipping invalid sender at index {index}: {sender}")
+                print(f"Skipping row with invalid sender at index {index}: {sender}")
+                continue
 
-        # Calculate confusion matrix
-        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+        # Check if y_true and y_pred are not empty before calculating confusion matrix
+        if len(y_true) > 0 and len(y_pred) > 0:
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+            # Calculate metrics
+            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
+            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
+            tnr = tn / (tn + fp) if (tn + fp) > 0 else 0
+            fnr = fn / (tp + fn) if (tp + fn) > 0 else 0
+            accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
 
-        # Calculate metrics
-        tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-        tnr = tn / (tn + fp) if (tn + fp) > 0 else 0
-        fnr = fn / (tp + fn) if (tp + fn) > 0 else 0
-        accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
-
-        print("Confusion Matrix:")
-        print("TN:", tn, "FP:", fp)
-        print("FN:", fn, "TP:", tp)
-        print("\nMetrics:")
-        print(f"TPR (Recall): {tpr:.2f}")
-        print(f"FPR: {fpr:.2f}")
-        print(f"TNR (Specificity): {tnr:.2f}")
-        print(f"FNR: {fnr:.2f}")
-        print(f"Accuracy: {accuracy:.2f}")
+            print("Confusion Matrix:")
+            print("TN:", tn, "FP:", fp)
+            print("FN:", fn, "TP:", tp)
+            print("\nMetrics:")
+            print(f"TPR (Recall): {tpr:.2f}")
+            print(f"FPR: {fpr:.2f}")
+            print(f"TNR (Specificity): {tnr:.2f}")
+            print(f"FNR: {fnr:.2f}")
+            print(f"Accuracy: {accuracy:.2f}")
+        else:
+            print("No valid predictions were made. Unable to calculate confusion matrix.")
     else:
         print("Invalid choice. Please try again.")
 
