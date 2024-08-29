@@ -198,9 +198,9 @@ def main():
         filename = str(input("Enter file name with .csv extension: "))  # Corrected to .csv
         dt = pd.read_csv(filename)
 
-        # Print the first few rows to understand the structure
-        print("Dataset preview:")
-        print(dt.head())
+        # # Print the first few rows to understand the structure
+        # print("Dataset preview:")
+        # print(dt.head())
 
         # Remove rows with NaN in 'body' or 'label' columns
         dt = dt.dropna(subset=['body', 'label'])
@@ -212,17 +212,17 @@ def main():
         # Evaluate emails in the dataset
         for index, row in dt.iterrows():
             sender = row['sender'] if pd.notna(row['sender']) else "unknown@example.com"  # Use a dummy value
-            body = row['body']
-            label = row['label']
+            body = row['body'] if pd.notna(row['body']) else "samplebody"
+            label = row['label'] if pd.notna(row['body']) else "samplelabel"
 
             # Debugging information
-            print(f"Processing row {index}: sender={sender}, label={label}")
+            # print(f"Processing row {index}: sender={sender}, label={label}")
 
             # Check if sender is valid
             if isinstance(sender, str) and sender:  # Ensure sender is a string and not empty
                 score = evaluate_email(sender, body, [])
                 if isinstance(label, str):
-                    y_true.append(1 if label.strip().lower() == 'phishing' else 0)
+                    y_true.append(1 if label.strip().lower() == 'phishing' or 'spam' or 'yes' else 0)
                 elif isinstance(label, (int, float)):
                     y_true.append(int(label))
                 else:
