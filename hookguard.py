@@ -44,7 +44,6 @@ legitimate_domains = [
     "microsoft.com"
 ]
 
-
 def contains_phishing_terms(email_body):
     return any(term.lower() in email_body.lower() for term in phishing_terms)
 
@@ -76,13 +75,22 @@ def contains_legal_jargon(email_body):
     ]
     return any(term in email_body.lower() for term in legal_terms)
 
-def contains_urgent_language(email_body):
-    urgent_phrases = [ 
-        "act now", "limited time", "important", "hurry", "quickly", "soon", 
+def contains_urgent_language(email_body, subject):
+    urgent_phrases = [
+        "act now", "limited time", "important", "hurry", "quickly", "soon",
         "serious legal action", "respond within 24 hours", "immediate action required",
         "urgent", "failure to respond", "important notice", "last warning"
     ]
-    return any(phrase in email_body.lower() for phrase in urgent_phrases)
+    
+    body_contains_urgent = any(phrase in email_body.lower() for phrase in urgent_phrases)
+    
+    if isinstance(subject, list):
+        subject_str = ' '.join(subject)  # Convert list to string
+        subject_contains_urgent = any(phrase in subject_str.lower() for phrase in urgent_phrases)
+    else:
+        subject_contains_urgent = any(phrase in subject.lower() for phrase in urgent_phrases)
+    
+    return body_contains_urgent or subject_contains_urgent
 
 def contains_promotional_content(email_body):
     promotional_phrases = [
@@ -91,10 +99,17 @@ def contains_promotional_content(email_body):
     ]
     return any(phrase in email_body.lower() for phrase in promotional_phrases)
 
-
 def clean_url(url):
     # Remove unwanted characters from the URL
     return url.strip('[]')  # Example cleaning, adjust as necessary
+
+suspicious_url_patterns = [
+    r'icloud\.com\.br',  # Mimicking legitimate domains with slight variations
+    r'signin\.[a-z]+\.[a-z]+\.civpro\.co\.za',  # Unusual subdomains or extra TLDs
+    r'\.php\?option=',  # URLs with long query strings or complex paths, typically involving .php
+    r'\.be/index\.php',  # Specific pattern observed in defacement URLs
+    r'cimoldal\.html'  # Other unusual paths observed in defacement URLs
+]
 
 def has_mismatched_urls(email_body, sender_domain):
     urls = re.findall(r'https?://[^\s]+', email_body)
@@ -102,7 +117,14 @@ def has_mismatched_urls(email_body, sender_domain):
         cleaned_url = clean_url(url)
         try:
             extracted = urlparse(cleaned_url)
-            if extracted.netloc != sender_domain:
+            domain = extracted.netloc
+            
+            # Check if the domain or path matches any of the suspicious patterns
+            for pattern in suspicious_url_patterns:
+                if re.search(pattern, domain) or re.search(pattern, cleaned_url):
+                    return True
+            
+            if domain and domain != sender_domain:
                 return True
         except ValueError:
             print(f"Invalid URL encountered: {cleaned_url}")  # Log invalid URLs
@@ -113,12 +135,23 @@ def has_malicious_attachments(attachments):
     malicious_extensions = ['.exe', '.zip', '.scr', '.bat', '.js', '.rar', '.7z']
     return any(attachment.lower().endswith(ext) for ext in malicious_extensions for attachment in attachments)
 
-def contains_spam_keywords(email_body):
+def contains_spam_keywords(email_body, subject):
     spam_keywords = [
-        "free", "buy now", "limited time", "act now", 
+        "free", "buy now", "limited time", "act now",
         "click here", "guaranteed", "winner"
     ]
-    return any(keyword in email_body.lower() for keyword in spam_keywords)
+    
+    body_contains_spam = any(keyword in email_body.lower() for keyword in spam_keywords)
+    
+    # Convert subject to string if it's a list
+    if isinstance(subject, list):
+        subject_str = ' '.join(subject)  # Convert list to string
+    else:
+        subject_str = subject  # Keep it as is if it's already a string
+    
+    subject_contains_spam = any(keyword in subject_str.lower() for keyword in spam_keywords)
+    
+    return body_contains_spam or subject_contains_spam
 
 def has_excessive_punctuation(email_body):
     return len(re.findall(r'[!?.]{2,}', email_body)) > 0
@@ -146,7 +179,7 @@ def parse_eml_file(file_path):
 
     return sender_email, email_body, attachments
 
-def evaluate_email(sender_email, email_body, attachments):
+def evaluate_email(sender_email, email_body, subject, attachments=[]):
     score = 0
     sender_domain = sender_email.split('@')[-1]
 
@@ -154,7 +187,7 @@ def evaluate_email(sender_email, email_body, attachments):
         score += 1
     if is_suspicious_sender_email(sender_email):
         score += 1
-    if contains_urgent_language(email_body):
+    if contains_urgent_language(email_body, subject):
         score += 1
     if contains_legal_jargon(email_body):
         score += 1
@@ -166,7 +199,7 @@ def evaluate_email(sender_email, email_body, attachments):
         score += 1
     if has_malicious_attachments(attachments):
         score += 1
-    if contains_spam_keywords(email_body):
+    if contains_spam_keywords(email_body, subject):
         score += 1
     if has_excessive_punctuation(email_body):
         score += 1
@@ -174,8 +207,6 @@ def evaluate_email(sender_email, email_body, attachments):
         score += 1
 
     return score
-
-
 
 def main():
     print("1. Check an EML file")
@@ -187,7 +218,7 @@ def main():
         file_path = filename
 
         sender_email, email_body, attachments = parse_eml_file(file_path)
-        score = evaluate_email(sender_email, email_body, attachments)
+        score = evaluate_email(sender_email, email_body, [])
 
         if score >= 4:  # Set threshold for flagging as phishing
             print("This email is likely a phishing attempt.")
@@ -195,12 +226,8 @@ def main():
             print("This email seems safe.")
     elif choice == 2:
         # Load dataset
-        filename = str(input("Enter file name with .csv extension: "))  # Corrected to .csv
+        filename = str(input("Enter file name with .csv extension: "))
         dt = pd.read_csv(filename)
-
-        # # Print the first few rows to understand the structure
-        # print("Dataset preview:")
-        # print(dt.head())
 
         # Remove rows with NaN in 'body' or 'label' columns
         dt = dt.dropna(subset=['body', 'label'])
@@ -213,21 +240,22 @@ def main():
         for index, row in dt.iterrows():
             sender = row['sender'] if pd.notna(row['sender']) else "unknown@example.com"  # Use a dummy value
             body = row['body'] if pd.notna(row['body']) else "samplebody"
-            label = row['label'] if pd.notna(row['body']) else "samplelabel"
-
-            # Debugging information
-            # print(f"Processing row {index}: sender={sender}, label={label}")
+            label = row['label'] if pd.notna(row['label']) else "samplelabel"
+            subject = [row['subject']] if pd.notna(row['subject']) else ["samplesub"]
 
             # Check if sender is valid
             if isinstance(sender, str) and sender:  # Ensure sender is a string and not empty
-                score = evaluate_email(sender, body, [])
+                score = evaluate_email(sender, body, subject, [])
+                
+                # Check if label is a string or numeric
                 if isinstance(label, str):
-                    y_true.append(1 if label.strip().lower() == 'phishing' or 'spam' or 'yes' else 0)
-                elif isinstance(label, (int, float)):
+                    y_true.append(1 if label.strip().lower() in ['phishing', 'spam', 'yes'] else 0)
+                elif isinstance(label, (int, float)):  # Handle numeric labels
                     y_true.append(int(label))
                 else:
                     print(f"Skipping row with invalid label at index {index}: {label}")
                     continue
+
                 y_pred.append(score >= 4)
             else:
                 print(f"Skipping row with invalid sender at index {index}: {sender}")
